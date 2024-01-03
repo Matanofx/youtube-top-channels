@@ -90,36 +90,17 @@ SET
     channel_type = NULLIF(channel_type, 'null'),
     category = NULLIF(category, 'null');
 
--- exploring the top countries by total number of channels and subscribers
+-- we can begin querying
+
+-- count of youtubers per category
 
 SELECT
-	COUNTRY,
-	COUNT(*) AS channels_count,
-	SUM(subscribers)
+	category,
+	COUNT(*) AS channels_count
 FROM youtube
-WHERE country IS NOT NULL
+WHERE category IS NOT NULL
 GROUP BY 1
-ORDER BY channels_count DESC
-
--- exploring the correlation between channels count per country and population
-
-WITH top_countries AS
-	(SELECT
-	COUNTRY,
-	COUNT(*) AS channels_count,
-	SUM(subscribers)
-FROM youtube
-WHERE country IS NOT NULL
-GROUP BY 1
-ORDER BY channels_count DESC)
-
-
-SELECT
-  CORR(channels_count, Population) AS correlation_population
-FROM
-  youtube AS y
-JOIN top_countries AS t
-ON y.COUNTRY = t.COUNTRY -- low positive correlation result
+ORDER BY 2 DESC
 
 -- most popular categories by subscribers
 
@@ -131,15 +112,15 @@ WHERE category IS NOT NULL
 GROUP BY category 
 ORDER BY total_subs DESC
 
--- count of youtubers per category
+-- most popular category by views per video
 
 SELECT
 	category,
-	COUNT(*) AS channels_count
+	ROUND(SUM(video_views) / SUM(uploads)) AS avg_views_per_video
 FROM youtube
 WHERE category IS NOT NULL
-GROUP BY 1
-ORDER BY 2 DESC
+GROUP BY category
+ORDER BY avg_views_per_video DESC
 
 -- average monthly income per category
 
@@ -169,7 +150,37 @@ SELECT
 FROM sub
 WHERE top_earner = 1 AND category IS NOT NULL
 ORDER BY highest_monthly_earnings DESC
-	
+
+--exploring the top countries by total number of channels and subscribers
+
+SELECT
+	COUNTRY,
+	COUNT(*) AS channels_count,
+	SUM(subscribers) AS total_subscribers
+FROM youtube
+WHERE country IS NOT NULL
+GROUP BY 1
+ORDER BY channels_count DESC
+
+-- exploring the correlation between channels count per country and population
+
+WITH top_countries AS
+	(SELECT
+	COUNTRY,
+	COUNT(*) AS channels_count,
+	SUM(subscribers)
+FROM youtube
+WHERE country IS NOT NULL
+GROUP BY 1
+ORDER BY channels_count DESC)
+
+
+SELECT
+  CORR(channels_count, Population) AS correlation_population
+FROM
+  youtube AS y
+JOIN top_countries AS t
+ON y.COUNTRY = t.COUNTRY -- lower positive correlation result
 
 -- top youtuber by avg views per video
 
@@ -181,6 +192,21 @@ FROM youtube
 WHERE video_views IS NOT NULL AND uploads IS NOT NULL AND youtuber IS NOT NULL AND
 		uploads > 5
 ORDER BY avg_views_per_video DESC
+
+-- exploring top youtubers by views as opposed to rank by subsrcibers
+
+SELECT corr(rank, video_views)
+FROM youtube -- somewhat negative correlation
+
+-- most views in the last 30 days
+
+SELECT 
+	youtuber,
+	video_views_for_the_last_30_days
+FROM youtube
+WHERE video_views_for_the_last_30_days IS NOT NULL
+		AND youtuber IS NOT NULL
+ORDER BY video_views_for_the_last_30_days DESC
 
 -- correlation between uploads and avg views per video
 
@@ -209,24 +235,7 @@ GROUP BY
 ORDER BY
     uploads;
 	
--- 
-
-
-
--- most popular category by views per video
-
-SELECT
-	category,
-	ROUND(SUM(video_views) / SUM(uploads)) AS avg_views_per_video
-FROM youtube
-WHERE category IS NOT NULL
-GROUP BY category
-ORDER BY avg_views_per_video DESC
-
--- exploring top youtubers by views as opposed to rank by subsrcibers
-
-SELECT corr(rank, video_views)
-FROM youtube -- somewhat negative correlation
+-- The difference between subs ranking and total views ranking
 
 WITH sub AS
 	(SELECT
@@ -250,7 +259,7 @@ SELECT
 FROM sub
 ORDER BY subscribers DESC;
 
--- top youtubers by subscribers growth in the last 30 days
+-- Top 10 fastest growing youtube channels
 
 SELECT
 	youtuber,
@@ -260,7 +269,7 @@ WHERE subscribers_for_last_30_days IS NOT NULL
 ORDER BY subscribers_for_last_30_days DESC
 LIMIT 10;
 
--- top youtubers by subscribers growth rate relative to size in the last 30 days
+-- top 10 fastest growing youtube channels relative to subscribers count
 
 SELECT
 	youtuber,
@@ -270,7 +279,7 @@ WHERE subscribers_for_last_30_days IS NOT NULL
 ORDER BY subs_growth_rate DESC
 LIMIT 10;
 
--- Answering the question, how long until Mr beast surpasses T-series in subscribers count?
+-- Answering the question- how long until Mr beast surpasses T-series in subscribers count?
 
 WITH RECURSIVE subscriber_growth AS (
     SELECT
@@ -297,10 +306,10 @@ WITH RECURSIVE subscriber_growth AS (
 )
 SELECT
     youtuber,
-    current_subscribers_mrbeast,
+    
     monthly_growth_mrbeast,
     competitor,
-    current_subscribers_tseries,
+    
     monthly_growth_tseries,
     months_passed
 FROM (
@@ -313,17 +322,6 @@ FROM (
 WHERE
     rn = 1;
 
--- highest views in the last 30 days
-
-SELECT 
-	youtuber,
-	video_views_for_the_last_30_days
-FROM youtube
-WHERE video_views_for_the_last_30_days IS NOT NULL
-		AND youtuber IS NOT NULL
-ORDER BY video_views_for_the_last_30_days DESC
 
 
-SELECT *
-FROM youtube
-ORDER BY rank
+
