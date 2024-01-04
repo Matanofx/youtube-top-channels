@@ -112,11 +112,26 @@ WHERE category IS NOT NULL
 GROUP BY category 
 ORDER BY total_subs DESC
 
+-- correlation between the number of of channels and sum of subscribers per category (0.99)
+
+SELECT
+    CORR(channels_count, total_subs) AS correlation
+FROM (
+    SELECT
+        category,
+        COUNT(*) AS channels_count,
+        SUM(subscribers) AS total_subs
+    FROM
+        youtube
+    GROUP BY
+        category
+) AS subquery;
+
 -- most popular category by views per video
 
 SELECT
 	category,
-	ROUND(SUM(video_views) / SUM(uploads)) AS avg_views_per_video
+	ROUND(AVG(video_views) / AVG(uploads)) AS avg_views_per_video
 FROM youtube
 WHERE category IS NOT NULL
 GROUP BY category
@@ -132,24 +147,43 @@ WHERE category IS NOT NULL
 GROUP BY 1
 ORDER BY 2 DESC
 
--- top youtuber earnings from each category
+-- Correlation between average views and average income
+-- Almost no correlation, interesting! but hard to figure out why because of missing data
 
-WITH sub AS
+SELECT
+	CORR(average_income, avg_views_per_video) AS corr
+FROM
 	(SELECT
 		category,
-		youtuber,
-		ROUND(highest_monthly_earnings) AS highest_monthly_earnings,
-		RANK() OVER(PARTITION BY category ORDER BY highest_yearly_earnings DESC) AS top_earner
+		ROUND(SUM(video_views) / SUM(uploads)) AS avg_views_per_video,
+		ROUND(AVG(highest_monthly_earnings)) AS average_income
 	FROM youtube
-	WHERE highest_monthly_earnings IS NOT NULL)
-	
+	GROUP BY category
+	) AS sub;
+
+-- top youtuber earnings from each category
+
+WITH sub AS (
+    SELECT
+        category,
+        youtuber,
+        ROUND(MAX(highest_monthly_earnings)) AS highest_monthly_earnings,
+        ROUND(SUM(video_views) / SUM(uploads)) AS avg_views_per_video,
+        ROW_NUMBER() OVER(PARTITION BY category ORDER BY MAX(highest_monthly_earnings) DESC) AS row_num
+    FROM youtube
+    WHERE highest_monthly_earnings IS NOT NULL
+    GROUP BY category, youtuber
+)
+
 SELECT
-	category,
-	youtuber,
-	highest_monthly_earnings
+    category,
+    youtuber,
+    highest_monthly_earnings,
+    avg_views_per_video
 FROM sub
-WHERE top_earner = 1 AND category IS NOT NULL
-ORDER BY highest_monthly_earnings DESC
+WHERE row_num = 1 AND
+		category IS NOT NULL
+ORDER BY highest_monthly_earnings DESC;
 
 --exploring the top countries by total number of channels and subscribers
 
@@ -158,7 +192,7 @@ SELECT
 	COUNT(*) AS channels_count,
 	SUM(subscribers) AS total_subscribers
 FROM youtube
-WHERE country IS NOT NULL
+WHERE country IS NOT NULL 
 GROUP BY 1
 ORDER BY channels_count DESC
 
@@ -167,16 +201,17 @@ ORDER BY channels_count DESC
 WITH top_countries AS
 	(SELECT
 	COUNTRY,
+	population,
 	COUNT(*) AS channels_count,
-	SUM(subscribers)
+	SUM(subscribers) AS total_subscribers
 FROM youtube
 WHERE country IS NOT NULL
-GROUP BY 1
+GROUP BY 1,2
 ORDER BY channels_count DESC)
 
 
 SELECT
-  CORR(channels_count, Population) AS correlation_population
+  CORR(channels_count, t.population) AS correlation_population
 FROM
   youtube AS y
 JOIN top_countries AS t
@@ -195,8 +230,56 @@ ORDER BY avg_views_per_video DESC
 
 -- exploring top youtubers by views as opposed to rank by subsrcibers
 
-SELECT corr(rank, video_views)
-FROM youtube -- somewhat negative correlation
+SELECT
+	youtuber,
+	rank,
+	video_views
+FROM youtube
+WHERE youtuber IS NOT NULL AND
+		video_views IS NOT NULL
+ORDER BY video_views DESC
+
+-- The difference between subs ranking and total views ranking
+
+WITH sub AS
+	(SELECT
+		youtuber,
+		subscribers,
+		video_views,
+	 	uploads,
+		rank AS subs_ranking,
+		RANK() OVER(ORDER BY video_views DESC) AS views_rank
+	FROM youtube
+	WHERE video_views IS NOT NULL AND youtuber IS NOT NULL)
+
+SELECT 
+	youtuber,
+	uploads,
+	subscribers,
+	video_views,
+	subs_ranking,
+	views_rank,
+	ROUND(((subs_ranking - views_rank) / 977.0) * 100, 2) || '%' AS percentage_difference
+FROM sub
+ORDER BY subscribers DESC;
+
+-- correlation between the subs rank and the views rank ( 0.6 )
+
+WITH sub AS
+	(SELECT
+		youtuber,
+		subscribers,
+		video_views,
+	 	uploads,
+		rank AS subs_ranking,
+		RANK() OVER(ORDER BY video_views DESC) AS views_rank
+	FROM youtube
+	WHERE video_views IS NOT NULL AND youtuber IS NOT NULL)
+
+SELECT
+	CORR(subs_ranking, views_rank)
+FROM sub
+
 
 -- most views in the last 30 days
 
@@ -233,39 +316,20 @@ FROM
 GROUP BY
     uploads
 ORDER BY
-    uploads;
+    uploads; 
 	
--- The difference between subs ranking and total views ranking
-
-WITH sub AS
-	(SELECT
-		youtuber,
-		subscribers,
-		video_views,
-	 	uploads,
-		rank AS subs_ranking,
-		RANK() OVER(ORDER BY video_views DESC) AS views_rank
-	FROM youtube
-	WHERE video_views IS NOT NULL AND youtuber IS NOT NULL)
-
-SELECT 
-	youtuber,
-	uploads,
-	subscribers,
-	video_views,
-	subs_ranking,
-	views_rank,
-	ROUND(((subs_ranking - views_rank) / 977.0) * 100, 2) || '%' AS percentage_difference
-FROM sub
-ORDER BY subscribers DESC;
+/* conclusion: the dataset has many errors in the uploads columns and thus
+the results may not reflect a true image */
 
 -- Top 10 fastest growing youtube channels
 
 SELECT
 	youtuber,
+	category,
 	subscribers_for_last_30_days / 1000000 || 'mil' AS monthly_subs_growth_in_mil
 FROM youtube
-WHERE subscribers_for_last_30_days IS NOT NULL
+WHERE subscribers_for_last_30_days IS NOT NULL AND
+		category IS NOT NULL
 ORDER BY subscribers_for_last_30_days DESC
 LIMIT 10;
 
@@ -273,9 +337,11 @@ LIMIT 10;
 
 SELECT
 	youtuber,
+		category,
 	CAST(subscribers_for_last_30_days AS FLOAT) / subscribers AS subs_growth_rate
 FROM youtube
-WHERE subscribers_for_last_30_days IS NOT NULL
+WHERE subscribers_for_last_30_days IS NOT NULL AND
+		category IS NOT NULL
 ORDER BY subs_growth_rate DESC
 LIMIT 10;
 
